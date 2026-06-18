@@ -1,0 +1,30 @@
+{
+  "KPackageStructure": "Plasma/Applet",
+  "KPlugin": {
+    "Authors": [
+      {
+        "Email": "local@example.invalid",
+        "Name": "Local"
+      }
+    ],
+    "Category": "System Information",
+    "Description": "Display two Cursor API usage counters on the KDE Plasma desktop or panel.",
+    "EnabledByDefault": true,
+    "FormFactors": [
+      "desktop",
+      "panel"
+    ],
+    "Icon": "utilities-system-monitor",
+    "Id": "com.local.cursor.api.monitor",
+    "License": "MIT",
+    "Name": "Cursor API Monitor",
+    "ServiceTypes": [
+      "Plasma/Applet"
+    ],
+    "Version": "0.1.0",
+    "Website": "https://cursor.com"
+  },
+  "X-Plasma-API": "declarativeappletscript",
+  "X-Plasma-API-Minimum-Version": "6.0",
+  "X-Plasma-MainScript": "ui/main.qml"
+}

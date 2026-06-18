@@ -1,0 +1,11 @@
+{
+  "sources": [
+    {
+      "type": "cursor",
+      "cookie_path": "~/.config/cursor-usage-monitor/cursor-cookie",
+      "team_id": "auto",
+      "warning_percent": 80,
+      "critical_percent": 95
+    }
+  ]
+}

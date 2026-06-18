@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0 http://www.kde.org/standards/kcfg/1.0/kcfg.xsd">
+  <kcfgfile name=""/>
+  <group name="General">
+    <entry name="configPath" type="String">
+      <label>Usage source config path</label>
+      <default>~/.config/cursor-usage-monitor/config.json</default>
+    </entry>
+    <entry name="pollIntervalSeconds" type="Int">
+      <label>Refresh interval in seconds</label>
+      <default>60</default>
+      <min>15</min>
+      <max>3600</max>
+    </entry>
+    <entry name="showDebugDetails" type="Bool">
+      <label>Show helper error details</label>
+      <default>false</default>
+    </entry>
+  </group>
+</kcfg>

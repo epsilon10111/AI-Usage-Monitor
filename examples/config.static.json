@@ -1,0 +1,22 @@
+{
+  "sources": [
+    {
+      "name": "Cursor API 1",
+      "type": "static",
+      "used": 37,
+      "limit": 100,
+      "unit": "requests",
+      "warning_percent": 80,
+      "critical_percent": 95
+    },
+    {
+      "name": "Cursor API 2",
+      "type": "static",
+      "used": 12.5,
+      "limit": 25,
+      "unit": "USD",
+      "warning_percent": 80,
+      "critical_percent": 95
+    }
+  ]
+}

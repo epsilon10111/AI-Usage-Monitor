@@ -1,0 +1,69 @@
+# --- Secrets & personal config (never commit) ---
+.env
+.env.*
+!.env.example
+
+# Cursor session cookies, API tokens, bearer keys
+cursor-cookie
+cursor-token
+*-cookie
+*-token
+*.cookie
+*.token
+secrets/
+credentials/
+credentials.json
+auth.json
+
+# Local runtime config (install.sh writes to ~/.config; ignore copies at repo root)
+/config.json
+/config.local.json
+/config.*.local.json
+/*.local.json
+/local.config.json
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# --- Editors & IDEs ---
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# --- OS ---
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# --- Logs & temp ---
+*.log
+*.tmp
+*.temp
+.cache/
+
+# --- KDE / Plasma build artifacts ---
+*.kdev4
+compile_commands.json
