@@ -16,17 +16,17 @@ PlasmoidItem {
     property string debugMessage: ""
     property string updatedAt: "--"
     property int pollIntervalSeconds: Math.max(15, Plasmoid.configuration.pollIntervalSeconds || 60)
-    property string configPath: Plasmoid.configuration.configPath || "~/.config/cursor-usage-monitor/config.json"
-    readonly property string helperPath: localFilePath(Qt.resolvedUrl("../scripts/cursor_usage_helper.py"))
+    property string configPath: Plasmoid.configuration.configPath || "~/.config/ai-usage-monitor/config.json"
+    readonly property string helperPath: localFilePath(Qt.resolvedUrl("../scripts/usage_helper.py"))
     readonly property string helperCommand: "python3 " + shellQuote(helperPath) + " --config " + shellQuote(configPath)
 
     Plasmoid.icon: "utilities-system-monitor"
-    Plasmoid.title: i18n("Cursor API Monitor")
+    Plasmoid.title: i18n("AI Usage Monitor")
     preferredRepresentation: Plasmoid.formFactor === PlasmaCore.Types.Planar ? fullRepresentation : compactRepresentation
-    Layout.minimumWidth: Kirigami.Units.gridUnit * 11
-    Layout.minimumHeight: Kirigami.Units.gridUnit * 4
-    Layout.preferredWidth: Kirigami.Units.gridUnit * 16
-    Layout.preferredHeight: Kirigami.Units.gridUnit * 9
+    Layout.minimumWidth: Kirigami.Units.gridUnit * 12
+    Layout.minimumHeight: Kirigami.Units.gridUnit * 5
+    Layout.preferredWidth: Kirigami.Units.gridUnit * 17
+    Layout.preferredHeight: Kirigami.Units.gridUnit * 13
 
     function localFilePath(url) {
         var value = String(url)
@@ -94,15 +94,44 @@ PlasmoidItem {
         return "--"
     }
 
-    function compactText() {
-        if (usageItems.length === 0) {
-            return loaded ? "--" : i18n("Loading")
+    // Group flat items by their "group" field, preserving first-seen order.
+    function groupsModel() {
+        var order = []
+        var map = ({})
+        for (var i = 0; i < usageItems.length; i++) {
+            var it = usageItems[i]
+            var g = it.group || i18n("Usage")
+            if (map[g] === undefined) {
+                map[g] = []
+                order.push(g)
+            }
+            map[g].push(it)
         }
-        var parts = []
-        for (var i = 0; i < Math.min(2, usageItems.length); i++) {
-            parts.push(Math.round(percentFor(usageItems[i])) + "%")
+        var out = []
+        for (var j = 0; j < order.length; j++) {
+            out.push({ "name": order[j], "items": map[order[j]] })
         }
-        return parts.join(" / ")
+        return out
+    }
+
+    // One {percent, color} chip per group, using the group's worst item.
+    function compactSummary() {
+        var groups = groupsModel()
+        var out = []
+        for (var i = 0; i < groups.length; i++) {
+            var items = groups[i].items
+            var worst = -1
+            var worstItem = null
+            for (var j = 0; j < items.length; j++) {
+                var p = percentFor(items[j])
+                if (p > worst) {
+                    worst = p
+                    worstItem = items[j]
+                }
+            }
+            out.push({ "percent": Math.round(Math.max(0, worst)), "color": statusColor(worstItem) })
+        }
+        return out
     }
 
     function statusColor(item) {
@@ -160,12 +189,15 @@ PlasmoidItem {
     Component.onCompleted: root.refresh()
 
     compactRepresentation: MouseArea {
-        Layout.minimumWidth: Kirigami.Units.gridUnit * 5
+        Layout.minimumWidth: compactRow.implicitWidth + Kirigami.Units.smallSpacing * 2
         Layout.minimumHeight: Kirigami.Units.gridUnit * 2
         onClicked: root.expanded = !root.expanded
 
         RowLayout {
+            id: compactRow
             anchors.fill: parent
+            anchors.leftMargin: Kirigami.Units.smallSpacing
+            anchors.rightMargin: Kirigami.Units.smallSpacing
             spacing: Kirigami.Units.smallSpacing
 
             Kirigami.Icon {
@@ -175,112 +207,193 @@ PlasmoidItem {
             }
 
             PlasmaComponents3.Label {
-                Layout.fillWidth: true
-                text: root.compactText()
-                elide: Text.ElideRight
+                visible: !root.loaded
+                text: i18n("…")
+                verticalAlignment: Text.AlignVCenter
+            }
+
+            Repeater {
+                model: root.loaded ? root.compactSummary() : []
+
+                delegate: PlasmaComponents3.Label {
+                    text: modelData.percent + "%"
+                    color: modelData.color
+                    font.bold: true
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+
+            PlasmaComponents3.Label {
+                visible: root.loaded && root.compactSummary().length === 0
+                text: "--"
                 verticalAlignment: Text.AlignVCenter
             }
         }
     }
 
     fullRepresentation: Item {
-        implicitWidth: Kirigami.Units.gridUnit * 16
-        implicitHeight: Kirigami.Units.gridUnit * 9
+        implicitWidth: Kirigami.Units.gridUnit * 17
+        implicitHeight: Kirigami.Units.gridUnit * 13
 
         ColumnLayout {
             anchors.fill: parent
-            anchors.margins: Kirigami.Units.smallSpacing
+            anchors.margins: Kirigami.Units.largeSpacing
             spacing: Kirigami.Units.smallSpacing
 
+            // Header
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Kirigami.Units.smallSpacing
 
                 Kirigami.Icon {
                     source: "utilities-system-monitor"
-                    implicitWidth: Kirigami.Units.iconSizes.smallMedium
-                    implicitHeight: Kirigami.Units.iconSizes.smallMedium
+                    implicitWidth: Kirigami.Units.iconSizes.medium
+                    implicitHeight: Kirigami.Units.iconSizes.medium
                 }
 
-                PlasmaComponents3.Label {
+                ColumnLayout {
                     Layout.fillWidth: true
-                    text: i18n("Cursor API Usage")
-                    font.bold: true
-                    elide: Text.ElideRight
+                    spacing: 0
+
+                    PlasmaComponents3.Label {
+                        Layout.fillWidth: true
+                        text: i18n("AI Usage Monitor")
+                        font.bold: true
+                        font.pointSize: Kirigami.Theme.defaultFont.pointSize + 1
+                        elide: Text.ElideRight
+                    }
+
+                    PlasmaComponents3.Label {
+                        Layout.fillWidth: true
+                        visible: root.loaded
+                        text: root.hasError && root.errorMessage
+                            ? root.errorMessage
+                            : i18n("Updated %1", root.updatedAt)
+                        color: root.hasError ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.disabledTextColor
+                        font: Kirigami.Theme.smallFont
+                        elide: Text.ElideRight
+                    }
                 }
 
                 PlasmaComponents3.ToolButton {
                     icon.name: "view-refresh"
                     display: PlasmaComponents3.AbstractButton.IconOnly
                     text: i18n("Refresh")
+                    PlasmaComponents3.ToolTip.text: text
+                    PlasmaComponents3.ToolTip.visible: hovered
                     onClicked: root.refresh()
                 }
             }
 
-            PlasmaComponents3.Label {
-                Layout.fillWidth: true
-                visible: root.loaded
-                text: root.hasError && root.errorMessage ? root.errorMessage : i18n("Updated: %1", root.updatedAt)
-                color: root.hasError ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.disabledTextColor
-                font: Kirigami.Theme.smallFont
-                elide: Text.ElideRight
-                wrapMode: Text.NoWrap
-            }
+            Kirigami.Separator { Layout.fillWidth: true }
 
             PlasmaComponents3.Label {
                 Layout.fillWidth: true
                 visible: !root.loaded
-                text: i18n("Loading usage data...")
+                text: i18n("Loading usage data…")
                 color: Kirigami.Theme.disabledTextColor
             }
 
-            Repeater {
-                model: root.usageItems
+            // Grouped usage sections
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Kirigami.Units.largeSpacing
+                visible: root.loaded && root.usageItems.length > 0
 
-                delegate: ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: Kirigami.Units.smallSpacing / 2
+                Repeater {
+                    model: root.groupsModel()
 
-                    property var item: modelData
-
-                    RowLayout {
+                    delegate: ColumnLayout {
                         Layout.fillWidth: true
                         spacing: Kirigami.Units.smallSpacing
 
-                        Rectangle {
-                            width: Kirigami.Units.smallSpacing
-                            height: Kirigami.Units.gridUnit
-                            radius: width / 2
-                            color: root.statusColor(item)
-                        }
+                        required property var modelData
 
                         PlasmaComponents3.Label {
-                            Layout.fillWidth: true
-                            text: item.name || i18n("Usage")
+                            text: modelData.name
+                            font.bold: true
+                            font.capitalization: Font.AllUppercase
+                            font.pointSize: Kirigami.Theme.smallFont.pointSize
+                            color: Kirigami.Theme.disabledTextColor
                             elide: Text.ElideRight
                         }
 
-                        PlasmaComponents3.Label {
-                            text: root.usageText(item)
-                            horizontalAlignment: Text.AlignRight
-                            elide: Text.ElideRight
+                        Repeater {
+                            model: modelData.items
+
+                            delegate: ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+
+                                required property var modelData
+                                readonly property real pct: root.percentFor(modelData)
+                                readonly property color accent: root.statusColor(modelData)
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Kirigami.Units.smallSpacing
+
+                                    PlasmaComponents3.Label {
+                                        Layout.fillWidth: true
+                                        text: modelData.name || i18n("Usage")
+                                        elide: Text.ElideRight
+                                    }
+
+                                    PlasmaComponents3.Label {
+                                        text: Math.round(pct) + "%"
+                                        font.bold: true
+                                        color: accent
+                                    }
+                                }
+
+                                // Custom rounded progress bar, colored by status
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    height: Math.round(Kirigami.Units.gridUnit * 0.4)
+                                    radius: height / 2
+                                    color: Qt.rgba(Kirigami.Theme.textColor.r,
+                                                   Kirigami.Theme.textColor.g,
+                                                   Kirigami.Theme.textColor.b, 0.12)
+
+                                    Rectangle {
+                                        height: parent.height
+                                        radius: parent.radius
+                                        width: Math.max(parent.height, parent.width * Math.min(1, pct / 100))
+                                        color: accent
+
+                                        Behavior on width {
+                                            NumberAnimation {
+                                                duration: Kirigami.Units.longDuration
+                                                easing.type: Easing.OutCubic
+                                            }
+                                        }
+                                    }
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Kirigami.Units.smallSpacing
+
+                                    PlasmaComponents3.Label {
+                                        text: root.usageText(modelData)
+                                        font: Kirigami.Theme.smallFont
+                                        color: Kirigami.Theme.disabledTextColor
+                                    }
+
+                                    Item { Layout.fillWidth: true }
+
+                                    PlasmaComponents3.Label {
+                                        Layout.maximumWidth: parent.width * 0.6
+                                        visible: Boolean(modelData.detail)
+                                        text: modelData.detail || ""
+                                        font: Kirigami.Theme.smallFont
+                                        color: Kirigami.Theme.disabledTextColor
+                                        horizontalAlignment: Text.AlignRight
+                                        elide: Text.ElideRight
+                                    }
+                                }
+                            }
                         }
-                    }
-
-                    PlasmaComponents3.Label {
-                        Layout.fillWidth: true
-                        visible: Boolean(item.detail)
-                        text: item.detail || ""
-                        color: Kirigami.Theme.disabledTextColor
-                        font: Kirigami.Theme.smallFont
-                        elide: Text.ElideRight
-                    }
-
-                    PlasmaComponents3.ProgressBar {
-                        Layout.fillWidth: true
-                        from: 0
-                        to: 100
-                        value: root.percentFor(item)
                     }
                 }
             }
@@ -295,7 +408,6 @@ PlasmoidItem {
 
             PlasmaComponents3.Label {
                 Layout.fillWidth: true
-                Layout.fillHeight: true
                 visible: root.hasError && Plasmoid.configuration.showDebugDetails && root.debugMessage
                 text: root.debugMessage
                 color: Kirigami.Theme.disabledTextColor
@@ -305,9 +417,7 @@ PlasmoidItem {
                 elide: Text.ElideRight
             }
 
-            Item {
-                Layout.fillHeight: true
-            }
+            Item { Layout.fillHeight: true }
         }
     }
 }

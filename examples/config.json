@@ -2,8 +2,16 @@
   "sources": [
     {
       "type": "cursor",
-      "cookie_path": "~/.config/cursor-usage-monitor/cursor-cookie",
+      "group": "Cursor",
+      "cookie_path": "~/.config/ai-usage-monitor/cursor-cookie",
       "team_id": "auto",
+      "warning_percent": 80,
+      "critical_percent": 95
+    },
+    {
+      "type": "claude",
+      "group": "Claude Code",
+      "credentials_path": "~/.claude/.credentials.json",
       "warning_percent": 80,
       "critical_percent": 95
     }

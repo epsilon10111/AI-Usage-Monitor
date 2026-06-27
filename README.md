@@ -1,31 +1,31 @@
-# Cursor API Monitor
+# AI Usage Monitor
 
-Plasma 6 widget for Fedora KDE Plasma. It displays two Cursor API usage counters on the desktop or panel.
+Plasma 6 widget for Fedora KDE Plasma. It displays Cursor and Claude Code API usage counters on the desktop or panel, grouped by provider with color-coded progress bars and reset times.
 
 The widget is split into two parts:
 
 - `contents/ui/main.qml` renders the Plasma widget.
-- `contents/scripts/cursor_usage_helper.py` fetches usage data from the configured sources and prints JSON for QML.
+- `contents/scripts/usage_helper.py` fetches usage data from the configured sources and prints JSON for QML.
 
 ## Install
 
 ```bash
-chmod +x install.sh contents/scripts/cursor_usage_helper.py
+chmod +x install.sh contents/scripts/usage_helper.py
 ./install.sh
 ```
 
-Then add it from Plasma: right click the desktop or panel, choose `Add Widgets`, then search for `Cursor API Monitor`.
+Then add it from Plasma: right click the desktop or panel, choose `Add Widgets`, then search for `AI Usage Monitor`.
 
 The install script also creates an empty cookie file:
 
 ```text
-~/.config/cursor-usage-monitor/cursor-cookie
+~/.config/ai-usage-monitor/cursor-cookie
 ```
 
 For a standalone test window:
 
 ```bash
-plasmawindowed com.local.cursor.api.monitor
+plasmawindowed com.local.ai.usage.monitor
 ```
 
 ## Configure Cursor
@@ -33,7 +33,7 @@ plasmawindowed com.local.cursor.api.monitor
 The install script creates:
 
 ```text
-~/.config/cursor-usage-monitor/config.json
+~/.config/ai-usage-monitor/config.json
 ```
 
 Default config:
@@ -43,7 +43,7 @@ Default config:
   "sources": [
     {
       "type": "cursor",
-      "cookie_path": "~/.config/cursor-usage-monitor/cursor-cookie",
+      "cookie_path": "~/.config/ai-usage-monitor/cursor-cookie",
       "team_id": "auto",
       "warning_percent": 80,
       "critical_percent": 95
@@ -65,8 +65,8 @@ Get the required browser session cookie:
 2. Open developer tools.
 3. Open `Application` or `Storage`, then `Cookies`, then `https://cursor.com`.
 4. Copy the value of `WorkosCursorSessionToken`.
-5. Put only that value into `~/.config/cursor-usage-monitor/cursor-cookie`.
-6. Keep permissions strict with `chmod 600 ~/.config/cursor-usage-monitor/cursor-cookie`.
+5. Put only that value into `~/.config/ai-usage-monitor/cursor-cookie`.
+6. Keep permissions strict with `chmod 600 ~/.config/ai-usage-monitor/cursor-cookie`.
 
 `team_id` can be:
 
@@ -80,6 +80,31 @@ The widget calls these Cursor endpoints directly from your machine:
 - `/api/dashboard/get-plan-info`
 
 Your cookie is only sent to `https://cursor.com/api` by the local helper.
+
+## Configure Claude Code
+
+The widget can also show Claude Code subscription usage next to Cursor. The default `config.json` already includes a `claude` source:
+
+```json
+{
+  "type": "claude",
+  "group": "Claude Code",
+  "credentials_path": "~/.claude/.credentials.json",
+  "warning_percent": 80,
+  "critical_percent": 95
+}
+```
+
+It shows two rows:
+
+- `5h Limit`: percentage of the rolling 5-hour usage window used.
+- `Weekly`: percentage of the 7-day usage window used.
+
+Each row's detail line shows when that window resets.
+
+This reads the OAuth token written by the Claude Code CLI at `~/.claude/.credentials.json`, so just sign in once with Claude Code (`claude`) and the widget works. The token is short-lived; when it expires the helper refreshes it automatically using the stored refresh token and writes the new token back to the credentials file (mode `600`). Usage is read from `https://api.anthropic.com/api/oauth/usage`.
+
+If you do not use Claude Code, remove that source from `config.json`.
 
 ## Custom APIs
 
@@ -98,7 +123,7 @@ Example with JSON APIs:
       "auth": {
         "type": "header_file",
         "header": "Cookie",
-        "path": "~/.config/cursor-usage-monitor/cursor-cookie"
+        "path": "~/.config/ai-usage-monitor/cursor-cookie"
       },
       "used_path": "data.used",
       "limit_path": "data.limit",
@@ -111,7 +136,7 @@ Example with JSON APIs:
       "method": "GET",
       "auth": {
         "type": "bearer_file",
-        "path": "~/.config/cursor-usage-monitor/cursor-token"
+        "path": "~/.config/ai-usage-monitor/cursor-token"
       },
       "used_path": "usage.current",
       "limit_path": "usage.limit",
@@ -125,6 +150,7 @@ Supported source types:
 
 - `static`: local demo values.
 - `cursor`: built-in Cursor dashboard API adapter.
+- `claude`: built-in Claude Code subscription usage adapter (5-hour and 7-day windows).
 - `json_url`: fetch a JSON endpoint.
 - `command`: run a local command that prints JSON.
 
@@ -170,9 +196,9 @@ If `percent_path` is missing but `used` and `limit` exist, the helper computes t
 ## Helper Test
 
 ```bash
-python3 contents/scripts/cursor_usage_helper.py --config ~/.config/cursor-usage-monitor/config.json
-python3 contents/scripts/cursor_usage_helper.py --check-cursor-auth
-python3 contents/scripts/cursor_usage_helper.py --config examples/config.static.json
+python3 contents/scripts/usage_helper.py --config ~/.config/ai-usage-monitor/config.json
+python3 contents/scripts/usage_helper.py --check-cursor-auth
+python3 contents/scripts/usage_helper.py --config examples/config.static.json
 ```
 
 The helper always prints JSON so Plasma can display setup or auth errors instead of crashing the widget.

@@ -8,16 +8,16 @@
       }
     ],
     "Category": "System Information",
-    "Description": "Display two Cursor API usage counters on the KDE Plasma desktop or panel.",
+    "Description": "Display Cursor and Claude Code API usage counters on the KDE Plasma desktop or panel.",
     "EnabledByDefault": true,
     "FormFactors": [
       "desktop",
       "panel"
     ],
     "Icon": "utilities-system-monitor",
-    "Id": "com.local.cursor.api.monitor",
+    "Id": "com.local.ai.usage.monitor",
     "License": "MIT",
-    "Name": "Cursor API Monitor",
+    "Name": "AI Usage Monitor",
     "ServiceTypes": [
       "Plasma/Applet"
     ],

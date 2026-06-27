@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch usage counters for the Cursor API Monitor plasmoid.
+"""Fetch usage counters for the AI Usage Monitor plasmoid.
 
 The helper intentionally keeps network/auth logic outside QML. It accepts a
 small JSON config file and prints one JSON object to stdout.
@@ -25,9 +25,16 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_CONFIG = "~/.config/cursor-usage-monitor/config.json"
+DEFAULT_CONFIG = "~/.config/ai-usage-monitor/config.json"
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 CURSOR_API_BASE = "https://cursor.com/api"
+
+CLAUDE_CREDENTIALS_PATH = "~/.claude/.credentials.json"
+CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+CLAUDE_TOKEN_URL = "https://console.anthropic.com/v1/oauth/token"
+# Public OAuth client id used by the Claude Code CLI.
+CLAUDE_OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+CLAUDE_OAUTH_BETA = "oauth-2025-04-20"
 
 
 class UsageError(Exception):
@@ -223,6 +230,7 @@ def extract_usage(source: dict[str, Any], data: Any) -> dict[str, Any]:
         "unit": unit,
         "valueText": value_text(used, limit, unit, raw_text),
         "status": status_for(percent, source),
+        "group": str(source.get("group", "")),
     }
 
 
@@ -389,7 +397,7 @@ def apply_auth(headers: dict[str, str], auth: Any) -> None:
 
 
 def headers_from_source(source: dict[str, Any]) -> dict[str, str]:
-    headers = {"Accept": "application/json", "User-Agent": "cursor-api-monitor/0.1"}
+    headers = {"Accept": "application/json", "User-Agent": "ai-usage-monitor/0.1"}
     configured = source.get("headers", {})
     if configured:
         if not isinstance(configured, dict):
@@ -516,6 +524,22 @@ def reset_detail(start_of_month: Any) -> str:
     return f"resets in {days} days ({date_text})"
 
 
+def friendly_countdown(target: dt.datetime | None) -> str:
+    if target is None:
+        return ""
+    seconds = (target - dt.datetime.now().astimezone()).total_seconds()
+    if seconds <= 0:
+        return "resets now"
+    minutes = int(seconds // 60)
+    days, rem = divmod(minutes, 1440)
+    hours, mins = divmod(rem, 60)
+    if days > 0:
+        return f"resets in {days}d {hours}h"
+    if hours > 0:
+        return f"resets in {hours}h {mins}m"
+    return f"resets in {mins}m"
+
+
 def cursor_cookie_header(value: str) -> str:
     text = value.strip()
     if not text:
@@ -534,7 +558,7 @@ def cursor_headers(source: dict[str, Any]) -> dict[str, str]:
         env_name = source.get("cookie_env")
         cookie_value = os.environ.get(str(env_name), "").strip() if env_name else ""
         if not cookie_value:
-            cookie_path = str(source.get("cookie_path", "~/.config/cursor-usage-monitor/cursor-cookie"))
+            cookie_path = str(source.get("cookie_path", "~/.config/ai-usage-monitor/cursor-cookie"))
             expanded_cookie_path = expand_path(cookie_path)
             try:
                 cookie_value = read_text_file(cookie_path)
@@ -573,7 +597,7 @@ def cursor_cookie_value(source: dict[str, Any]) -> str:
     if value:
         return value
 
-    cookie_path = str(source.get("cookie_path", "~/.config/cursor-usage-monitor/cursor-cookie"))
+    cookie_path = str(source.get("cookie_path", "~/.config/ai-usage-monitor/cursor-cookie"))
     expanded_cookie_path = expand_path(cookie_path)
     try:
         value = read_text_file(cookie_path)
@@ -638,7 +662,7 @@ def cursor_dashboard_json(source: dict[str, Any], endpoint: str, body: Any = Non
     opener.open(
         urllib.request.Request(
             bootstrap_url,
-            headers={"User-Agent": "cursor-api-monitor/0.1", "Accept": "text/html,application/xhtml+xml"},
+            headers={"User-Agent": "ai-usage-monitor/0.1", "Accept": "text/html,application/xhtml+xml"},
         ),
         timeout=timeout,
     ).close()
@@ -648,7 +672,7 @@ def cursor_dashboard_json(source: dict[str, Any], endpoint: str, body: Any = Non
         "Content-Type": "application/json",
         "Origin": site_url,
         "Referer": f"{site_url}/dashboard/usage",
-        "User-Agent": "cursor-api-monitor/0.1",
+        "User-Agent": "ai-usage-monitor/0.1",
     }
     body_bytes = json.dumps({} if body is None else body).encode("utf-8")
     url = f"{base_url}/{endpoint.lstrip('/')}"
@@ -749,6 +773,7 @@ def percent_item(
     source: dict[str, Any],
     spend_cents: float | None = None,
     limit_cents: float | None = None,
+    group: str | None = None,
 ) -> dict[str, Any]:
     normalized = normalize_percent(percent)
     used_dollars = spend_cents / 100 if spend_cents is not None else None
@@ -777,6 +802,7 @@ def percent_item(
         "valueText": value,
         "status": status_for(normalized, source),
         "detail": detail,
+        "group": group or str(source.get("group", "")),
     }
 
 
@@ -807,6 +833,7 @@ def cursor_usage_items(source: dict[str, Any]) -> list[dict[str, Any]]:
     elif total_percent is not None:
         detail = f"Total {total_percent:.1f}% used" + (f" · {detail}" if detail else "")
 
+    group = str(source.get("group", "Cursor"))
     return [
         percent_item(
             str(source.get("auto_name", "Auto + Composer")),
@@ -815,6 +842,7 @@ def cursor_usage_items(source: dict[str, Any]) -> list[dict[str, Any]]:
             source,
             to_number(plan_usage.get("autoSpend")),
             to_number(plan_usage.get("autoLimit")),
+            group=group,
         ),
         percent_item(
             str(source.get("api_name", "API")),
@@ -823,7 +851,105 @@ def cursor_usage_items(source: dict[str, Any]) -> list[dict[str, Any]]:
             source,
             to_number(plan_usage.get("apiSpend")),
             to_number(plan_usage.get("apiLimit")),
+            group=group,
         ),
+    ]
+
+
+def read_claude_credentials(source: dict[str, Any]) -> tuple[Path, dict[str, Any], dict[str, Any]]:
+    creds_path = expand_path(str(source.get("credentials_path", CLAUDE_CREDENTIALS_PATH)))
+    try:
+        full = json.loads(creds_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise UsageError(
+            f"Claude credentials not found: {creds_path}. Sign in with the Claude Code CLI first."
+        ) from exc
+    except (OSError, json.JSONDecodeError) as exc:
+        raise UsageError(f"Cannot read Claude credentials {creds_path}: {exc}") from exc
+
+    oauth = full.get("claudeAiOauth")
+    if not isinstance(oauth, dict) or not oauth.get("accessToken"):
+        raise UsageError("Claude credentials file has no claudeAiOauth.accessToken")
+    return creds_path, full, oauth
+
+
+def refresh_claude_token(creds_path: Path, full: dict[str, Any], oauth: dict[str, Any]) -> str:
+    refresh_token = oauth.get("refreshToken")
+    if not refresh_token:
+        raise UsageError("Claude access token expired and no refreshToken is available. Re-run the Claude Code CLI.")
+
+    body = {
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+        "client_id": CLAUDE_OAUTH_CLIENT_ID,
+    }
+    headers = {"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "ai-usage-monitor/0.1"}
+    try:
+        data = request_json("POST", CLAUDE_TOKEN_URL, headers, body, timeout=15)
+    except UsageError as exc:
+        raise UsageError(f"Claude token refresh failed: {exc}. Re-run the Claude Code CLI to re-authenticate.") from exc
+
+    access_token = data.get("access_token")
+    if not access_token:
+        raise UsageError("Claude token refresh returned no access_token")
+
+    oauth["accessToken"] = access_token
+    if data.get("refresh_token"):
+        oauth["refreshToken"] = data["refresh_token"]
+    expires_in = to_number(data.get("expires_in"))
+    if expires_in:
+        oauth["expiresAt"] = int((dt.datetime.now(dt.timezone.utc).timestamp() + expires_in) * 1000)
+
+    full["claudeAiOauth"] = oauth
+    try:
+        tmp_path = creds_path.with_suffix(creds_path.suffix + ".tmp")
+        tmp_path.write_text(json.dumps(full, indent=2), encoding="utf-8")
+        os.chmod(tmp_path, 0o600)
+        os.replace(tmp_path, creds_path)
+    except OSError:
+        # Using the fresh token still works for this run even if we cannot persist it.
+        pass
+    return access_token
+
+
+def claude_access_token(source: dict[str, Any]) -> str:
+    creds_path, full, oauth = read_claude_credentials(source)
+    expires_at = to_number(oauth.get("expiresAt"))
+    now_ms = dt.datetime.now(dt.timezone.utc).timestamp() * 1000
+    # Refresh a minute early so a long-lived widget never serves an expired token.
+    if expires_at is not None and now_ms >= expires_at - 60_000:
+        return refresh_claude_token(creds_path, full, oauth)
+    return str(oauth["accessToken"])
+
+
+def claude_window_item(
+    source: dict[str, Any], name: str, group: str, window: Any
+) -> dict[str, Any]:
+    if not isinstance(window, dict):
+        window = {}
+    percent = to_number(window.get("utilization"))
+    detail = friendly_countdown(parse_datetime(window.get("resets_at")))
+    return percent_item(name, percent, detail, source, group=group)
+
+
+def claude_usage_items(source: dict[str, Any]) -> list[dict[str, Any]]:
+    token = claude_access_token(source)
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "anthropic-beta": CLAUDE_OAUTH_BETA,
+        "Accept": "application/json",
+        "User-Agent": "ai-usage-monitor/0.1",
+    }
+    base_url = str(source.get("usage_url", CLAUDE_USAGE_URL))
+    timeout = to_number(source.get("timeout_seconds")) or 10
+    data = request_json("GET", base_url, headers, timeout=timeout)
+    if not isinstance(data, dict):
+        raise UsageError("Claude usage response was not a JSON object")
+
+    group = str(source.get("group", "Claude Code"))
+    return [
+        claude_window_item(source, str(source.get("session_name", "5h Limit")), group, data.get("five_hour")),
+        claude_window_item(source, str(source.get("weekly_name", "Weekly")), group, data.get("seven_day")),
     ]
 
 
@@ -837,6 +963,8 @@ def fetch_source(source: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]
         return extract_usage(source, run_command_source(source))
     if source_type == "cursor":
         return cursor_usage_items(source)
+    if source_type == "claude":
+        return claude_usage_items(source)
     raise UsageError(f"Unsupported source type: {source_type}")
 
 
@@ -872,6 +1000,7 @@ def build_payload(config_path: str) -> dict[str, Any]:
                     "unit": str(source.get("unit", "")),
                     "valueText": "error",
                     "status": "critical",
+                    "group": str(source.get("group", "")),
                     "error": str(exc),
                 }
             )

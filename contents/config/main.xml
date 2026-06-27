@@ -6,7 +6,7 @@
   <group name="General">
     <entry name="configPath" type="String">
       <label>Usage source config path</label>
-      <default>~/.config/cursor-usage-monitor/config.json</default>
+      <default>~/.config/ai-usage-monitor/config.json</default>
     </entry>
     <entry name="pollIntervalSeconds" type="Int">
       <label>Refresh interval in seconds</label>

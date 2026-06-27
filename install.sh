@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_DIR="${HOME}/.config/cursor-usage-monitor"
+CONFIG_DIR="${HOME}/.config/ai-usage-monitor"
 CONFIG_FILE="${CONFIG_DIR}/config.json"
 COOKIE_FILE="${CONFIG_DIR}/cursor-cookie"
 
@@ -22,7 +22,7 @@ else
   exit 1
 fi
 
-printf 'Installed Cursor API Monitor.\n'
+printf 'Installed AI Usage Monitor.\n'
 printf 'Config: %s\n' "${CONFIG_FILE}"
 printf 'Cookie file: %s\n' "${COOKIE_FILE}"
-printf 'Add it from Plasma: right click desktop or panel -> Add Widgets -> Cursor API Monitor.\n'
+printf 'Add it from Plasma: right click desktop or panel -> Add Widgets -> AI Usage Monitor.\n'

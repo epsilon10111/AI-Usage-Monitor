@@ -13,7 +13,7 @@ Kirigami.FormLayout {
     PlasmaComponents3.TextField {
         id: configPath
         Kirigami.FormData.label: i18n("Config file:")
-        placeholderText: "~/.config/cursor-usage-monitor/config.json"
+        placeholderText: "~/.config/ai-usage-monitor/config.json"
         Layout.fillWidth: true
     }
 
