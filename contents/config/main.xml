@@ -10,7 +10,7 @@
     </entry>
     <entry name="pollIntervalSeconds" type="Int">
       <label>Refresh interval in seconds</label>
-      <default>60</default>
+      <default>180</default>
       <min>15</min>
       <max>3600</max>
     </entry>

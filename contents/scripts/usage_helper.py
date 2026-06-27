@@ -30,6 +30,7 @@ MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 CURSOR_API_BASE = "https://cursor.com/api"
 
 CLAUDE_CREDENTIALS_PATH = "~/.claude/.credentials.json"
+CLAUDE_CACHE_PATH = "~/.config/ai-usage-monitor/claude-usage-cache.json"
 CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 CLAUDE_TOKEN_URL = "https://console.anthropic.com/v1/oauth/token"
 # Public OAuth client id used by the Claude Code CLI.
@@ -86,6 +87,47 @@ def load_config(path: str) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise UsageError("Config root must be a JSON object")
     return data
+
+
+# Proxy applied to all outbound requests (e.g. a local Clash Verge mixed port).
+# None means "fall back to urllib's default behaviour", which honours the
+# HTTP_PROXY / HTTPS_PROXY environment variables.
+_PROXIES: dict[str, str] | None = None
+
+
+def configure_proxies(config: dict[str, Any]) -> None:
+    """Route all helper requests through a configured proxy.
+
+    Accepts a top-level config "proxy" that is either a string
+    (e.g. "http://127.0.0.1:7897", used for both http and https) or an object
+    mapping scheme -> proxy url. Clash Verge's mixed port speaks HTTP CONNECT,
+    so use the http:// scheme even for https targets.
+    """
+    global _PROXIES
+    _PROXIES = None
+
+    proxy = config.get("proxy")
+    if proxy is None:
+        return
+
+    if isinstance(proxy, str):
+        proxy = substitute_env(proxy).strip()
+        if not proxy:
+            return
+        _PROXIES = {"http": proxy, "https": proxy}
+    elif isinstance(proxy, dict):
+        mapping = {str(k): substitute_env(str(v)).strip() for k, v in proxy.items()}
+        _PROXIES = {k: v for k, v in mapping.items() if v}
+        if not _PROXIES:
+            _PROXIES = None
+            return
+    else:
+        raise UsageError("proxy must be a string or an object")
+
+    # Make urlopen() (used by request_json) honour the configured proxy.
+    urllib.request.install_opener(
+        urllib.request.build_opener(urllib.request.ProxyHandler(_PROXIES))
+    )
 
 
 def tokenize_path(path: str) -> list[str]:
@@ -649,7 +691,10 @@ def cursor_dashboard_opener(source: dict[str, Any]) -> urllib.request.OpenerDire
             rfc2109=False,
         )
     )
-    return urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+    handlers: list[urllib.request.BaseHandler] = [urllib.request.HTTPCookieProcessor(jar)]
+    if _PROXIES is not None:
+        handlers.append(urllib.request.ProxyHandler(_PROXIES))
+    return urllib.request.build_opener(*handlers)
 
 
 def cursor_dashboard_json(source: dict[str, Any], endpoint: str, body: Any = None) -> Any:
@@ -827,10 +872,7 @@ def cursor_usage_items(source: dict[str, Any]) -> list[dict[str, Any]]:
 
     detail = plan_amount_detail(plan_info, usage_data)
     total_percent = normalize_percent(to_number(plan_usage.get("totalPercentUsed")))
-    display_message = usage_data.get("displayMessage")
-    if display_message:
-        detail = f"{display_message}" + (f" · {detail}" if detail else "")
-    elif total_percent is not None:
+    if total_percent is not None:
         detail = f"Total {total_percent:.1f}% used" + (f" · {detail}" if detail else "")
 
     group = str(source.get("group", "Cursor"))
@@ -923,13 +965,54 @@ def claude_access_token(source: dict[str, Any]) -> str:
 
 
 def claude_window_item(
-    source: dict[str, Any], name: str, group: str, window: Any
+    source: dict[str, Any], name: str, group: str, window: Any, stale_note: str = ""
 ) -> dict[str, Any]:
     if not isinstance(window, dict):
         window = {}
     percent = to_number(window.get("utilization"))
     detail = friendly_countdown(parse_datetime(window.get("resets_at")))
+    if stale_note:
+        detail = f"{detail} · {stale_note}" if detail else stale_note
     return percent_item(name, percent, detail, source, group=group)
+
+
+def claude_items_from_data(
+    source: dict[str, Any], data: dict[str, Any], stale_note: str = ""
+) -> list[dict[str, Any]]:
+    group = str(source.get("group", "Claude Code"))
+    return [
+        claude_window_item(source, str(source.get("session_name", "5h Limit")), group, data.get("five_hour"), stale_note),
+        claude_window_item(source, str(source.get("weekly_name", "Weekly")), group, data.get("seven_day"), stale_note),
+    ]
+
+
+def claude_cache_path(source: dict[str, Any]) -> Path:
+    return expand_path(str(source.get("cache_path", CLAUDE_CACHE_PATH)))
+
+
+def write_claude_cache(source: dict[str, Any], data: dict[str, Any]) -> None:
+    path = claude_cache_path(source)
+    payload = {"fetchedAt": dt.datetime.now().astimezone().isoformat(timespec="seconds"), "data": data}
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload), encoding="utf-8")
+        tmp.replace(path)
+    except OSError:
+        pass
+
+
+def read_claude_cache(source: dict[str, Any]) -> tuple[dict[str, Any], str] | None:
+    try:
+        cached = json.loads(claude_cache_path(source).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    data = cached.get("data") if isinstance(cached, dict) else None
+    if not isinstance(data, dict):
+        return None
+    fetched = parse_datetime(cached.get("fetchedAt"))
+    note = f"cached {fetched.strftime('%H:%M')}" if fetched else "cached"
+    return data, note
 
 
 def claude_usage_items(source: dict[str, Any]) -> list[dict[str, Any]]:
@@ -942,15 +1025,20 @@ def claude_usage_items(source: dict[str, Any]) -> list[dict[str, Any]]:
     }
     base_url = str(source.get("usage_url", CLAUDE_USAGE_URL))
     timeout = to_number(source.get("timeout_seconds")) or 10
-    data = request_json("GET", base_url, headers, timeout=timeout)
+    try:
+        data = request_json("GET", base_url, headers, timeout=timeout)
+    except UsageError:
+        # The usage endpoint is tightly rate-limited (HTTP 429). Rather than
+        # flashing an error, reuse the last good values if we have them.
+        cached = read_claude_cache(source)
+        if cached is not None:
+            return claude_items_from_data(source, cached[0], cached[1])
+        raise
     if not isinstance(data, dict):
         raise UsageError("Claude usage response was not a JSON object")
 
-    group = str(source.get("group", "Claude Code"))
-    return [
-        claude_window_item(source, str(source.get("session_name", "5h Limit")), group, data.get("five_hour")),
-        claude_window_item(source, str(source.get("weekly_name", "Weekly")), group, data.get("seven_day")),
-    ]
+    write_claude_cache(source, data)
+    return claude_items_from_data(source, data)
 
 
 def fetch_source(source: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
@@ -971,6 +1059,7 @@ def fetch_source(source: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]
 def build_payload(config_path: str) -> dict[str, Any]:
     updated_at, updated_at_local = now_payload()
     config = load_config(config_path)
+    configure_proxies(config)
     sources = config.get("sources", [])
     if not isinstance(sources, list):
         raise UsageError("sources must be an array")

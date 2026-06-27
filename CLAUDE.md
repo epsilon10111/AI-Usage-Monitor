@@ -25,7 +25,9 @@ Data contract between the two halves (payload shape): `{ ok, updatedAt, updatedA
 
 ## Config and secrets
 
-Runtime config lives at `~/.config/ai-usage-monitor/config.json` (seeded from `examples/config.json` by `install.sh`). The Cursor session cookie (`WorkosCursorSessionToken`) goes in `~/.config/ai-usage-monitor/cursor-cookie`, mode 600. `examples/` holds reference configs; `config.static.json` uses the `static` source type for offline testing.
+Runtime config lives at `~/.config/ai-usage-monitor/config.json` (seeded from `examples/config.json` by `install.sh`). The Cursor session cookie (`WorkosCursorSessionToken`) goes in `~/.config/ai-usage-monitor/cursor-cookie`, mode 600. An optional top-level `proxy` (string like `"http://127.0.0.1:7897"`, e.g. a local Clash Verge mixed port, or a `{scheme: url}` object) routes all helper requests through a proxy via `configure_proxies`; when absent, urllib's default `HTTP(S)_PROXY` env handling applies.
+
+The Claude usage endpoint (`/api/oauth/usage`) is tightly rate-limited (returns HTTP 429 after a few requests in a short window). `claude_usage_items` writes each good response to a cache (`~/.config/ai-usage-monitor/claude-usage-cache.json`) and, on a fetch error, serves the last-good values tagged `· cached HH:MM` instead of an error item. Keep `pollIntervalSeconds` generous (default 180) to avoid tripping the limit. `examples/` holds reference configs; `config.static.json` uses the `static` source type for offline testing.
 
 ## Common commands
 
